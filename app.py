@@ -361,8 +361,10 @@ def generar_respuesta_con_ia(pregunta, resultados_supabase):
     
     contexto = ""
     if resultados_supabase:
-        for doc in resultados_supabase[:3]:
-            texto = doc.get('texto', '')[:1500]
+        # Para resúmenes, usamos más fragmentos (5 en lugar de 3)
+        num_fragmentos = 5 if "resumen" in pregunta.lower() else 3
+        for doc in resultados_supabase[:num_fragmentos]:
+            texto = doc.get('texto', '')[:2000]  # Más texto para resúmenes
             if texto:
                 metadatos = doc.get('metadatos', {})
                 if isinstance(metadatos, str):
@@ -463,7 +465,7 @@ Respuesta basada en el manual:"""
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=1000,
+            max_tokens=1500,  # Más tokens para resúmenes completos
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -471,6 +473,10 @@ Respuesta basada en el manual:"""
 
 def buscar_en_supabase(pregunta, model, limit=5):
     info = extraer_numero_maquina(pregunta)
+    
+    # Si es un resumen, queremos más fragmentos
+    es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
+    limite_busqueda = 8 if es_resumen else limit
     
     if info:
         numero = info["numero"]
@@ -488,6 +494,9 @@ def buscar_en_supabase(pregunta, model, limit=5):
         if tipo_manual and nombre_completo:
             resultados = buscar_manual_por_tipo(numero, tipo_manual, es_robot)
             if resultados:
+                # Si es resumen, devolvemos TODOS los resultados del manual
+                if es_resumen:
+                    return resultados
                 return resultados
             return None
     
@@ -498,7 +507,7 @@ def buscar_en_supabase(pregunta, model, limit=5):
     payload = {
         "query_embedding": embedding,
         "similitud_minima": 0.35,
-        "limite": limit * 2
+        "limite": limite_busqueda * 2
     }
     
     try:
@@ -515,12 +524,20 @@ def buscar_en_supabase(pregunta, model, limit=5):
                 resultados_mismo = [r for r in resultados if r.get('metadatos', {}).get('idioma') == idioma_pregunta]
                 resultados_otros = [r for r in resultados if r.get('metadatos', {}).get('idioma') != idioma_pregunta]
                 resultados = resultados_mismo + resultados_otros
-            return resultados[:limit]
+            return resultados[:limite_busqueda]
         return []
     except Exception as e:
         return []
 
 def formatear_respuesta(resultados, pregunta):
+    # ============================================================
+    # DETECTAR SI EL USUARIO PIDE UN RESUMEN
+    # ============================================================
+    es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales", "puntos clave"])
+    
+    # ============================================================
+    # CASO 1: PETICIÓN DE PLANO ELÉCTRICO
+    # ============================================================
     if es_peticion_de_plano(pregunta):
         info = extraer_numero_maquina(pregunta)
         if not info:
@@ -558,9 +575,18 @@ def formatear_respuesta(resultados, pregunta):
             respuesta += f"📁 **Busca el archivo:** `{archivo}` dentro de la carpeta\n"
         return respuesta
     
+    # ============================================================
+    # CASO 2: PETICIÓN DE MANUAL (con o sin resumen)
+    # ============================================================
     tipo_manual = detectar_tipo_manual(pregunta)
     if tipo_manual:
         if resultados:
+            # SI EL USUARIO PIDE UN RESUMEN, USA LA IA
+            if es_resumen:
+                respuesta_ia = generar_respuesta_con_ia(pregunta, resultados)
+                return f"🤖 **Asistente técnico:**\n\n{respuesta_ia}\n\n---\n📁 **Manual relacionado:** [Ver en Google Drive]({GOOGLE_DRIVE_MAIN})"
+            
+            # SI NO PIDE RESUMEN, DEVUELVE EL ENLACE DEL MANUAL (COMPORTAMIENTO ORIGINAL)
             respuesta = ""
             vistos = set()
             for doc in resultados[:3]:
@@ -589,7 +615,9 @@ def formatear_respuesta(resultados, pregunta):
         else:
             return f"❌ No encontré el manual solicitado.\n\n📁 **Ver todos los manuales en Google Drive:** [Haz clic aquí]({GOOGLE_DRIVE_MAIN})"
     
-    # Para preguntas técnicas, usar IA
+    # ============================================================
+    # CASO 3: PREGUNTA TÉCNICA GENERAL (SIEMPRE USA IA)
+    # ============================================================
     respuesta_ia = generar_respuesta_con_ia(pregunta, resultados)
     
     if resultados:
