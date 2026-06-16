@@ -361,12 +361,22 @@ def generar_respuesta_con_ia(pregunta, resultados_supabase):
     
     contexto = ""
     if resultados_supabase:
-        # Para resúmenes, usamos más fragmentos
-        es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
-        num_fragmentos = 8 if es_resumen else 3
+        # Detectar si es resumen específico de un tema
+        es_resumen_especifico = any(palabra in pregunta.lower() for palabra in [
+            "resumen de", "resumen sobre", "resumen del", "resumen de los",
+            "procedimientos de", "dispositivos de", "parámetros de", "seguridad de",
+            "mantenimiento de", "configuración de"
+        ])
+        
+        # Usar más fragmentos para temas específicos
+        if es_resumen_especifico:
+            num_fragmentos = 15
+        else:
+            es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
+            num_fragmentos = 8 if es_resumen else 3
         
         for doc in resultados_supabase[:num_fragmentos]:
-            texto = doc.get('texto', '')[:2500]
+            texto = doc.get('texto', '')[:3000] if es_resumen_especifico else doc.get('texto', '')[:2000]
             if texto:
                 metadatos = doc.get('metadatos', {})
                 if isinstance(metadatos, str):
@@ -400,11 +410,70 @@ def generar_respuesta_con_ia(pregunta, resultados_supabase):
     
     # Detectar si es un resumen
     es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
+    es_resumen_especifico = any(palabra in pregunta.lower() for palabra in [
+        "resumen de", "resumen sobre", "resumen del", "resumen de los",
+        "procedimientos de", "dispositivos de", "parámetros de", "seguridad de",
+        "mantenimiento de", "configuración de"
+    ])
     
     # ============================================================
-    # PROMPT MEJORADO PARA RESUMENES MÁS DETALLADOS
+    # PROMPT MEJORADO PARA RESUMENES ESPECÍFICOS
     # ============================================================
-    if es_resumen:
+    if es_resumen_especifico:
+        # Detectar el tema específico
+        tema = "contenido del manual"
+        if "mantenimiento" in pregunta.lower():
+            tema = "procedimientos de mantenimiento"
+        elif "seguridad" in pregunta.lower() or "dispositivos de seguridad" in pregunta.lower():
+            tema = "dispositivos de seguridad"
+        elif "parámetros" in pregunta.lower() or "configuraciones" in pregunta.lower():
+            tema = "parámetros y configuraciones"
+        elif "procedimientos" in pregunta.lower():
+            tema = "procedimientos"
+        elif "operación" in pregunta.lower() or "funcionamiento" in pregunta.lower():
+            tema = "operación y funcionamiento"
+        
+        prompt = f"""Eres un asistente técnico experto en máquinas de inyección ENGEL.
+
+La siguiente información ha sido EXTRAÍDA DIRECTAMENTE de los manuales de ENGEL.
+Debes responder EXCLUSIVAMENTE usando esta información.
+
+**TEMA ESPECÍFICO DEL RESUMEN:** {tema}
+
+INFORMACIÓN DE LOS MANUALES (NO inventes nada fuera de esto):
+{contexto}
+
+Pregunta del técnico: {pregunta}
+
+**INSTRUCCIONES PARA EL RESUMEN ESPECÍFICO:**
+
+1. **IDIOMA:** Responde SIEMPRE en ESPAÑOL
+
+2. **ENFOQUE:** Concéntrate EXCLUSIVAMENTE en {tema}. Ignora información no relacionada.
+
+3. **ESTRUCTURA DEL RESUMEN ESPECÍFICO:**
+   ## 📋 RESUMEN DE {tema.upper()} - IMM [número de máquina]
+
+   ### 🔍 INFORMACIÓN ENCONTRADA
+   [Lista toda la información relevante sobre el tema, organizada de forma lógica]
+
+   ### 📍 UBICACIÓN EN EL MANUAL
+   [Secciones o capítulos donde se encuentra esta información]
+
+   ### ⚙️ DETALLES IMPORTANTES
+   [Especificaciones, valores, procedimientos paso a paso]
+
+   ### ⚠️ ADVERTENCIAS Y PRECAUCIONES
+   [Precauciones de seguridad relacionadas con el tema]
+
+4. **DETALLE:** Sé completo y exhaustivo. Si hay múltiples procedimientos o elementos, enuméralos.
+
+5. **CITAS:** Al final, lista todas las fuentes consultadas con el formato:
+   - (Máquina, Tipo, Página)
+
+**Resumen específico basado en el manual:**"""
+        
+    elif es_resumen:
         prompt = f"""Eres un asistente técnico experto en máquinas de inyección ENGEL.
 
 La siguiente información ha sido EXTRAÍDA DIRECTAMENTE de los manuales de ENGEL.
@@ -417,38 +486,23 @@ Pregunta del técnico: {pregunta}
 
 **INSTRUCCIONES OBLIGATORIAS PARA EL RESUMEN:**
 
-1. **IDIOMA:** Responde SIEMPRE en ESPAÑOL, incluso si el texto fuente está en alemán, inglés u otro idioma.
+1. **IDIOMA:** Responde SIEMPRE en ESPAÑOL
 
-2. **ESTRUCTURA DEL RESUMEN:** Organiza la respuesta con estas secciones:
-
+2. **ESTRUCTURA DEL RESUMEN:**
    ## 📋 RESUMEN DEL MANUAL [nombre de la máquina]
-
    ### 🎯 PROPÓSITO DEL MANUAL
-   [Explica para qué sirve este manual, qué tipo de información contiene y a quién va dirigido]
-
    ### 📑 CONTENIDO PRINCIPAL
-   [Lista los temas principales que cubre el manual, organizados por categorías lógicas]
-
    ### 🔧 PROCEDIMIENTOS DE MANTENIMIENTO
-   [Describe los procedimientos de mantenimiento más importantes que se mencionan]
-
    ### 🛡️ DISPOSITIVOS DE SEGURIDAD
-   [Menciona los dispositivos de seguridad que se describen y cómo se verifican]
-
-   ### ⚙️ PARÁMETROS Y CONFIGURACIONES CRÍTICAS
-   [Valores, ajustes o configuraciones importantes que se mencionan]
-
+   ### ⚙️ PARÁMETROS CRÍTICOS
    ### ⚠️ ADVERTENCIAS IMPORTANTES
-   [Precauciones o advertencias de seguridad destacadas en el manual]
 
-3. **DETALLE:** Sé completo y detallado. Si el manual tiene información extensa, organízala en subsecciones. No te limites a frases cortas.
+3. **DETALLE:** Sé completo y detallado
 
-4. **CITAS:** Al final del resumen, lista todas las fuentes consultadas con el formato:
-   - (Máquina, Tipo, Página)
-
-5. **SI FALTA INFORMACIÓN:** Si alguna sección no tiene información en los fragmentos disponibles, indícalo claramente: "No se encontró información específica sobre [tema] en los fragmentos disponibles".
+4. **CITAS:** Lista todas las fuentes consultadas
 
 **Resumen basado en el manual:**"""
+        
     else:
         prompt = f"""Eres un asistente técnico experto en máquinas de inyección ENGEL.
 
@@ -462,15 +516,10 @@ Pregunta del técnico: {pregunta}
 
 **INSTRUCCIONES OBLIGATORIAS:**
 
-1. **IDIOMA:** Responde SIEMPRE en ESPAÑOL, incluso si el texto fuente está en alemán, inglés u otro idioma.
-
-2. **RESPUESTA CLARA:** Organiza la información de forma lógica y fácil de entender.
-
-3. **CITAS:** Cita las fuentes usando el formato: (Máquina, Tipo, Página)
-
-4. **SI NO ENCUENTRAS INFORMACIÓN:** Di claramente: "No encontré esta información específica en el manual"
-
-5. **NO USES CONOCIMIENTO GENERAL:** Solo lo que dice el manual.
+1. **IDIOMA:** Responde SIEMPRE en ESPAÑOL
+2. **RESPUESTA CLARA:** Organiza la información de forma lógica
+3. **CITAS:** Usa el formato: (Máquina, Tipo, Página)
+4. **SI NO ENCUENTRAS INFORMACIÓN:** Dilo claramente
 
 Respuesta basada en el manual:"""
     
@@ -488,45 +537,37 @@ Respuesta basada en el manual:"""
 3. No inventas información.
 
 **IDIOMA:**
-- SIEMPRE respondes en ESPAÑOL, sin importar el idioma del texto fuente.
-- Traduces correctamente los términos técnicos del alemán o inglés al español.
+- SIEMPRE respondes en ESPAÑOL
+- Traduces correctamente los términos técnicos del alemán o inglés al español
 
-**INSTRUCCIONES ESPECIALES PARA RESUMENES:**
-Cuando el usuario pide un "resumen", "descripción general" o "visión general":
-- Organiza la información en secciones claras con títulos y subtítulos
-- Sé detallado y completo, no uses frases cortas
-- Sintetiza los puntos más importantes de TODOS los fragmentos disponibles
-- Mantén un tono técnico pero accesible para técnicos de mantenimiento
-- Cita todas las fuentes principales al final
+**PARA RESUMENES ESPECÍFICOS:**
+- Concéntrate en el tema solicitado
+- Sé exhaustivo con la información disponible
+- Organiza la información de forma lógica
+- Cita todas las fuentes
 
-**FORMATO PARA RESUMEN:**
+**FORMATO PARA RESUMEN ESPECÍFICO:**
 ---
-## 📋 RESUMEN DEL MANUAL [nombre_maquina]
+## 📋 RESUMEN DE [TEMA] - IMM [número]
 
-### 🎯 PROPÓSITO DEL MANUAL
-[Descripción detallada del propósito]
+### 🔍 INFORMACIÓN ENCONTRADA
+[Contenido detallado]
 
-### 📑 CONTENIDO PRINCIPAL
-[Temas clave organizados lógicamente]
+### 📍 UBICACIÓN EN EL MANUAL
+[Secciones o capítulos]
 
-### 🔧 PROCEDIMIENTOS DE MANTENIMIENTO
-[Procedimientos importantes]
-
-### 🛡️ DISPOSITIVOS DE SEGURIDAD
-[Dispositivos y verificaciones]
-
-### ⚙️ PARÁMETROS CRÍTICOS
-[Valores y configuraciones importantes]
+### ⚙️ DETALLES IMPORTANTES
+[Especificaciones y procedimientos]
 
 ### ⚠️ ADVERTENCIAS
-[Precauciones destacadas]
+[Precauciones]
 
 ---
 """},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=2000 if es_resumen else 1000,
+            max_tokens=2500 if es_resumen_especifico else (2000 if es_resumen else 1000),
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -535,9 +576,19 @@ Cuando el usuario pide un "resumen", "descripción general" o "visión general":
 def buscar_en_supabase(pregunta, model, limit=5):
     info = extraer_numero_maquina(pregunta)
     
-    # Si es un resumen, queremos más fragmentos
-    es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
-    limite_busqueda = 8 if es_resumen else limit
+    # Detectar si es un resumen específico de un tema
+    es_resumen_especifico = any(palabra in pregunta.lower() for palabra in [
+        "resumen de", "resumen sobre", "resumen del", "resumen de los",
+        "procedimientos de", "dispositivos de", "parámetros de", "seguridad de",
+        "mantenimiento de", "configuración de"
+    ])
+    
+    # Si es resumen específico, usar más fragmentos
+    if es_resumen_especifico:
+        limite_busqueda = 15
+    else:
+        es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
+        limite_busqueda = 8 if es_resumen else limit
     
     if info:
         numero = info["numero"]
@@ -555,7 +606,8 @@ def buscar_en_supabase(pregunta, model, limit=5):
         if tipo_manual and nombre_completo:
             resultados = buscar_manual_por_tipo(numero, tipo_manual, es_robot)
             if resultados:
-                if es_resumen:
+                # Si es resumen específico o general, devolvemos TODOS los resultados
+                if es_resumen_especifico or any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general"]):
                     return resultados
                 return resultados
             return None
