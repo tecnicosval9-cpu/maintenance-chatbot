@@ -1,21 +1,8 @@
-"# Archivos de Python" 
-"__pycache__/" 
-"*.pyc" 
-".env" 
-"" 
-"# Archivos de documentos" 
-"*.pdf" 
-"*.zip" 
-"*.doc" 
-"*.docx" 
-"" 
-"# Bases de datos vectoriales" 
-"vectorstore_engel/" 
-"chroma_db/" 
-"" 
-"# Archivos temporales" 
-"reporte_*.json" 
-"*.log" 
-"" 
-"# Configuraci¢n local de Streamlit" 
-".streamlit/" 
+__pycache__/ 
+*.pyc 
+*.pdf 
+*.zip 
+vectorstore_engel/ 
+.streamlit/ 
+reporte_*.json 
+.env 
