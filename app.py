@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 import re
+import time
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 
@@ -215,13 +216,17 @@ def expandir_pregunta(pregunta):
     if "cartridge" in pregunta_lower:
         palabras.extend(["kartusche", "cartucho", "valve cartridge", "ventil-kartusche"])
     
+    # Palabras clave para seguridad
+    if "seguridad" in pregunta_lower or "sicherheit" in pregunta_lower:
+        palabras.extend(["safety", "security", "schutz", "protección", "guard", "sicherheit", "notaus", "emergency"])
+    
     return ' '.join(palabras)
 
 def detectar_idioma_pregunta(pregunta):
     pregunta_lower = pregunta.lower()
-    palabras_ingles = ['vacuum', 'pressure', 'temperature', 'valve', 'pump', 'error', 'how', 'what', 'is', 'the', 'speed', 'velocity', 'adjust', 'learn', 'operate', 'manual', 'safety', 'hydraulic', 'cartridge']
-    palabras_aleman = ['vakuum', 'druck', 'temperatur', 'ventil', 'pumpe', 'fehler', 'wie', 'was', 'ist', 'der', 'geschwindigkeit', 'einstellen', 'lernen', 'bedienen', 'handbuch', 'sicherheit', 'hydraulik', 'kartusche']
-    palabras_espanol = ['vacío', 'presión', 'temperatura', 'válvula', 'bomba', 'fallo', 'cómo', 'qué', 'es', 'el', 'velocidad', 'ajustar', 'carrera', 'aprender', 'operar', 'manual', 'seguro', 'hidraulico', 'cartucho']
+    palabras_ingles = ['vacuum', 'pressure', 'temperature', 'valve', 'pump', 'error', 'how', 'what', 'is', 'the', 'speed', 'velocity', 'adjust', 'learn', 'operate', 'manual', 'safety', 'hydraulic', 'cartridge', 'emergency']
+    palabras_aleman = ['vakuum', 'druck', 'temperatur', 'ventil', 'pumpe', 'fehler', 'wie', 'was', 'ist', 'der', 'geschwindigkeit', 'einstellen', 'lernen', 'bedienen', 'handbuch', 'sicherheit', 'hydraulik', 'kartusche', 'notaus']
+    palabras_espanol = ['vacío', 'presión', 'temperatura', 'válvula', 'bomba', 'fallo', 'cómo', 'qué', 'es', 'el', 'velocidad', 'ajustar', 'carrera', 'aprender', 'operar', 'manual', 'seguro', 'hidraulico', 'cartucho', 'emergencia']
     
     es_ingles = any(p in pregunta_lower for p in palabras_ingles)
     es_aleman = any(p in pregunta_lower for p in palabras_aleman)
@@ -545,6 +550,7 @@ Respuesta basada en el manual:"""
 - Sé exhaustivo con la información disponible
 - Organiza la información de forma lógica
 - Cita todas las fuentes
+- Si no hay información sobre el tema específico, indícalo claramente y sugiere dónde podría encontrarse
 
 **FORMATO PARA RESUMEN ESPECÍFICO:**
 ---
@@ -571,7 +577,11 @@ Respuesta basada en el manual:"""
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Error al conectar con el asistente IA: {str(e)[:150]}\n\n📁 Por favor, consulta los manuales en Google Drive."
+        error_msg = str(e)
+        if "429" in error_msg:
+            return f"⚠️ **Límite de peticiones alcanzado.** Por favor, espera unos segundos y vuelve a intentarlo.\n\n💡 **Consejo:** Si estás haciendo muchas preguntas seguidas, espera 10-15 segundos entre cada una para evitar este error.\n\n📁 Mientras tanto, puedes consultar los manuales en Google Drive."
+        else:
+            return f"⚠️ Error al conectar con el asistente IA: {error_msg[:150]}\n\n📁 Por favor, consulta los manuales en Google Drive."
 
 def buscar_en_supabase(pregunta, model, limit=5):
     info = extraer_numero_maquina(pregunta)
@@ -585,10 +595,10 @@ def buscar_en_supabase(pregunta, model, limit=5):
     
     # Si es resumen específico, usar más fragmentos
     if es_resumen_especifico:
-        limite_busqueda = 15
+        limite_busqueda = 20
     else:
         es_resumen = any(palabra in pregunta.lower() for palabra in ["resumen", "descripción general", "visión general", "puntos principales"])
-        limite_busqueda = 8 if es_resumen else limit
+        limite_busqueda = 10 if es_resumen else limit
     
     if info:
         numero = info["numero"]
